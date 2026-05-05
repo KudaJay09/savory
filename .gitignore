@@ -41,3 +41,11 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Ignore workspace MCP secrets
+.vscode/mcp.json
+.vscode/mcp.json.bak
+
+.env.local
+
+.env.local
