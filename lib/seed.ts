@@ -1,5 +1,5 @@
 import { ID } from "react-native-appwrite";
-import { appwriteConfig, databases, storage } from "./appwrite";
+import { appwriteConfig, databases } from "./appwrite";
 import dummyData from "./data";
 
 interface Category {
@@ -10,19 +10,19 @@ interface Category {
 interface Customization {
   name: string;
   price: number;
-  type: "topping" | "side" | "size" | "crust" | string; // extend as needed
+  type: "topping" | "side" | "size" | "crust" | string;
 }
 
 interface MenuItem {
   name: string;
   description: string;
-  image_url: string;
+  image_url: string; // raw URL, not storage
   price: number;
   rating: number;
   calories: number;
   protein: number;
   category_name: string;
-  customizations: string[]; // list of customization names
+  customizations: string[];
 }
 
 interface DummyData {
@@ -31,7 +31,6 @@ interface DummyData {
   menu: MenuItem[];
 }
 
-// ensure dummyData has correct shape
 const data = dummyData as DummyData;
 
 async function clearAll(collectionId: string): Promise<void> {
@@ -51,110 +50,127 @@ async function clearAll(collectionId: string): Promise<void> {
   );
 }
 
-async function clearStorage(): Promise<void> {
-  const list = await storage.listFiles(appwriteConfig.bucketId);
-
-  await Promise.all(
-    list.files.map((file) =>
-      storage.deleteFile(appwriteConfig.bucketId, file.$id),
-    ),
-  );
-}
-
-async function uploadImageToStorage(imageUrl: string) {
-  const response = await fetch(imageUrl);
-  const blob = await response.blob();
-
-  const fileObj = {
-    name: imageUrl.split("/").pop() || `file-${Date.now()}.jpg`,
-    type: blob.type,
-    size: blob.size,
-    uri: imageUrl,
-  };
-
-  const file = await storage.createFile(
-    appwriteConfig.bucketId,
-    ID.unique(),
-    fileObj,
-  );
-
-  return storage.getFileViewURL(appwriteConfig.bucketId, file.$id);
-}
-
 async function seed(): Promise<void> {
-  // 1. Clear all
-  await clearAll(appwriteConfig.categoriesCollectionId);
-  await clearAll(appwriteConfig.customizationCollectionId);
-  await clearAll(appwriteConfig.menuCollectionId);
-  await clearAll(appwriteConfig.menuCustomizationCollectionId);
-  await clearStorage();
+  let currentStage = "Initializing";
+  let currentOperation = "";
+  let currentItem = "";
 
-  // 2. Create Categories
-  const categoryMap: Record<string, string> = {};
-  for (const cat of data.categories) {
-    const doc = await databases.createDocument(
-      appwriteConfig.databaseId,
-      appwriteConfig.categoriesCollectionId,
-      ID.unique(),
-      cat,
-    );
-    categoryMap[cat.name] = doc.$id;
-  }
+  try {
+    currentStage = "Stage 1: Clear collections";
+    console.log(`🔄 [${currentStage}]`);
 
-  // 3. Create Customizations
-  const customizationMap: Record<string, string> = {};
-  for (const cus of data.customizations) {
-    const doc = await databases.createDocument(
-      appwriteConfig.databaseId,
-      appwriteConfig.customizationCollectionId,
-      ID.unique(),
-      {
-        name: cus.name,
-        price: cus.price,
-        type: cus.type,
-      },
-    );
-    customizationMap[cus.name] = doc.$id;
-  }
+    currentOperation = "Clearing categories collection";
+    await clearAll(appwriteConfig.categoriesCollectionId);
+    console.log("  ✓ Cleared categories collection");
 
-  // 4. Create Menu Items
-  const menuMap: Record<string, string> = {};
-  for (const item of data.menu) {
-    const uploadedImage = await uploadImageToStorage(item.image_url);
+    currentOperation = "Clearing customizations collection";
+    await clearAll(appwriteConfig.customizationCollectionId);
+    console.log("  ✓ Cleared customizations collection");
 
-    const doc = await databases.createDocument(
-      appwriteConfig.databaseId,
-      appwriteConfig.menuCollectionId,
-      ID.unique(),
-      {
-        name: item.name,
-        description: item.description,
-        image_url: uploadedImage,
-        price: item.price,
-        rating: item.rating,
-        calories: item.calories,
-        protein: item.protein,
-        categories: categoryMap[item.category_name],
-      },
-    );
+    currentOperation = "Clearing menu collection";
+    await clearAll(appwriteConfig.menuCollectionId);
+    console.log("  ✓ Cleared menu collection");
 
-    menuMap[item.name] = doc.$id;
+    currentOperation = "Clearing menu_customizations collection";
+    await clearAll(appwriteConfig.menuCustomizationCollectionId);
+    console.log("  ✓ Cleared menu_customizations collection");
 
-    // 5. Create menu_customizations
-    for (const cusName of item.customizations) {
-      await databases.createDocument(
+    currentStage = "Stage 2: Create categories";
+    currentOperation = "Creating category documents";
+    console.log(`🔄 [${currentStage}]`);
+    const categoryMap: Record<string, string> = {};
+    for (const cat of data.categories) {
+      currentItem = cat.name;
+      const doc = await databases.createDocument(
         appwriteConfig.databaseId,
-        appwriteConfig.menuCustomizationCollectionId,
+        appwriteConfig.categoriesCollectionId,
+        ID.unique(),
+        cat,
+      );
+      categoryMap[cat.name] = doc.$id;
+      console.log(`  ✓ Category created: ${cat.name}`);
+    }
+
+    currentStage = "Stage 3: Create customizations";
+    currentOperation = "Creating customization documents";
+    currentItem = "";
+    console.log(`🔄 [${currentStage}]`);
+    const customizationMap: Record<string, string> = {};
+    for (const cus of data.customizations) {
+      currentItem = cus.name;
+      const doc = await databases.createDocument(
+        appwriteConfig.databaseId,
+        appwriteConfig.customizationCollectionId,
         ID.unique(),
         {
-          menu: doc.$id,
-          customizations: customizationMap[cusName],
+          name: cus.name,
+          price: cus.price,
+          type: cus.type,
         },
       );
+      customizationMap[cus.name] = doc.$id;
+      console.log(`  ✓ Customization created: ${cus.name}`);
     }
-  }
 
-  console.log("✅ Seeding complete.");
+    currentStage = "Stage 4: Create menu items";
+    currentOperation = "Creating menu documents";
+    currentItem = "";
+    console.log(`🔄 [${currentStage}]`);
+    const menuMap: Record<string, string> = {};
+    for (const item of data.menu) {
+      currentItem = item.name;
+      const doc = await databases.createDocument(
+        appwriteConfig.databaseId,
+        appwriteConfig.menuCollectionId,
+        ID.unique(),
+        {
+          name: item.name,
+          description: item.description,
+          image_url: item.image_url,
+          price: item.price,
+          rating: item.rating,
+          calories: item.calories,
+          protein: item.protein,
+          categories: categoryMap[item.category_name],
+        },
+      );
+
+      menuMap[item.name] = doc.$id;
+      console.log(`  ✓ Menu item created: ${item.name}`);
+
+      currentOperation = `Linking customizations to menu item (${item.name})`;
+      for (const cusName of item.customizations) {
+        currentItem = `${item.name} -> ${cusName}`;
+        await databases.createDocument(
+          appwriteConfig.databaseId,
+          appwriteConfig.menuCustomizationCollectionId,
+          ID.unique(),
+          {
+            menu: doc.$id,
+            customizations: customizationMap[cusName],
+          },
+        );
+        console.log(`    ✓ Linked customization: ${cusName}`);
+      }
+      currentOperation = "Creating menu documents";
+    }
+
+    console.log("🎉 Seeding complete!");
+  } catch (error) {
+    console.error("❌ Seeding failed with context:", {
+      stage: currentStage,
+      operation: currentOperation,
+      item: currentItem,
+      databaseId: appwriteConfig.databaseId,
+      categoriesCollectionId: appwriteConfig.categoriesCollectionId,
+      customizationCollectionId: appwriteConfig.customizationCollectionId,
+      menuCollectionId: appwriteConfig.menuCollectionId,
+      menuCustomizationCollectionId:
+        appwriteConfig.menuCustomizationCollectionId,
+      error,
+    });
+    throw error;
+  }
 }
 
 export default seed;
